@@ -5,6 +5,7 @@ export default function MainNav() {
   const [open, setOpen] = useState(false);
   const links = [
     { name: 'Home', to: '/' },
+    { name: 'Dashboard', to: '/dashboard' },
     { name: 'Log In', to: '/login' },
     { name: 'Sign Up', to: '/signup' },
     { name: 'Profile Update', to: '/profileUpdateInput' },
