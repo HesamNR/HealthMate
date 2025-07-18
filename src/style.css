@@ -1,0 +1,98 @@
+@import "tailwindcss";
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --primary: #f0743e;
+  --border: #e5e7eb;
+  --muted: #f3f4f6;
+  --ring: #f0743e;
+  --background: #ffffff;
+  --foreground: #111827;
+  --m3-body-large-font-family: "Roboto", Helvetica, Arial, sans-serif;
+
+  font-family: var(--m3-body-large-font-family); /* 👈 override global font */
+  line-height: 1.5;
+  font-weight: 400;
+
+  color-scheme: light dark;
+  color: rgba(255, 255, 255, 0.87);
+  background-color: #ffffff;
+
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+
+a {
+  font-weight: 500;
+  color: #4F4F4F;
+  text-decoration: inherit;
+}
+a:hover {
+  color: #AAD59E;
+}
+
+body {
+  margin: 0;
+  /* display: flex;
+  place-items: center; */
+  min-width: 320px;
+  min-height: 100vh;
+}
+
+h1 {
+  font-size: 3.2em;
+  line-height: 1.1;
+}
+
+button {
+  border-radius: 8px;
+  border: 1px solid transparent;
+  padding: 0.6em 1.2em;
+  font-size: 1em;
+  font-weight: 500;
+  font-family: inherit;
+  background-color: #AAD59E;
+  cursor: pointer;
+  transition: border-color 0.25s;
+}
+button:hover {
+  border-color: #AAD59E;
+}
+button:focus,
+button:focus-visible {
+  outline: 4px auto -webkit-focus-ring-color;
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    color: #213547;
+    background-color: #ffffff;
+  }
+  a:hover {
+    color: #747bff;
+  }
+  button {
+    background-color: #f9f9f9;
+  }
+}
+
+.input {
+  width: 100%;
+  border: 1px solid #d1d5db; /* Tailwind gray-300 */
+  border-radius: 0.375rem;   /* Tailwind rounded */
+  padding: 0.5rem 0.75rem;   /* Tailwind px-3 py-2 */
+  font-size: 0.875rem;       /* Tailwind text-sm */
+  background-color: white;
+  color: black;
+}
+
+/* Optional extra shadow */
+.radix-switch-thumb {
+  box-shadow: 0px 2px 6px rgba(0, 0, 0, 0.15);
+  transition: transform 0.3s ease, box-shadow 0.3s ease;
+}
