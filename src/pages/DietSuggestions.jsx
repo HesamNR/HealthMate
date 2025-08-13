@@ -1,5 +1,5 @@
 // src/pages/DietSuggestions.jsx
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Navigate } from "react-router-dom";
 import "./DietSuggestions.css";
 
@@ -8,7 +8,6 @@ const BACKEND = import.meta.env.VITE_API_BASE || "http://localhost:5000";
 const TIMES = ["breakfast", "lunch", "dinner"];
 
 /** ---------- helpers ---------- */
-// keep this helper near the top
 const fmtDate = (d) =>
   typeof d === "string"
     ? d
@@ -17,10 +16,8 @@ const fmtDate = (d) =>
         .slice(0, 10);
 
 const addDays = (value, delta) => {
-  // value can be ISO string or Date
   const base = typeof value === "string" ? new Date(value) : new Date(value);
   base.setDate(base.getDate() + delta);
-  // return normalized ISO yyyy-mm-dd
   return fmtDate(base);
 };
 
@@ -71,10 +68,80 @@ async function apiDeleteItem(id) {
   return res.json();
 }
 
+/** ---------- nutrition fetch against your backend ---------- */
+// cache to avoid repeat requests during a session
+const nutriCache = new Map();
+
+async function fetchNutritionByTitle(title) {
+  const key = title.toLowerCase().trim();
+  if (nutriCache.has(key)) return nutriCache.get(key);
+
+  try {
+    const res = await fetch(
+      `${BACKEND}/api/recipes/search?query=${encodeURIComponent(title)}`
+    );
+    const data = await res.json();
+
+    if (data?.quotaExceeded) {
+      const out = { note: "Daily nutrition limit reached.", values: null };
+      nutriCache.set(key, out);
+      return out;
+    }
+
+    const first =
+      data?.recipes?.[0] ?? data?.results?.[0] ?? data?.recipe ?? null;
+
+    const round = (n) => (Number.isFinite(n) ? Math.round(n) : null);
+    const values = first
+      ? {
+          calories: round(first.calories),
+          carbs: round(first.carbs),
+          protein: round(first.protein),
+        }
+      : null;
+
+    const out = { note: values ? "Powered by Spoonacular" : "Nutrition unavailable", values };
+    nutriCache.set(key, out);
+    return out;
+  } catch {
+    const out = { note: "Nutrition unavailable", values: null };
+    nutriCache.set(key, out);
+    return out;
+  }
+}
+
+/** ---------- macro bar UI helpers ---------- */
+function MacroBar({ label, value, unit, max = 100 }) {
+  // clamp width; if null, show 0 width and '—'
+  const pct = value == null ? 0 : Math.min(100, Math.round((value / max) * 100));
+  return (
+    <div>
+      <div className="macro__bar">
+        <div
+          className={`macro__fill ${
+            label === "Protein"
+              ? "macro__fill--protein"
+              : label === "Carbs"
+              ? "macro__fill--carb"
+              : "macro__fill--cal"
+          }`}
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+      <div className="macro__label">
+        <span className="dot">•</span>
+        <span>
+          {label}: {value == null ? "—" : `${value} ${unit}`}
+        </span>
+      </div>
+    </div>
+  );
+}
+
 export default function DietSuggestions({ user }) {
   const isAuthed = !!user?.email;
 
-  // UI state (declare ALL hooks before any conditional return)
+  // UI state
   const [tab, setTab] = useState("breakfast");
   const [day, setDay] = useState(fmtDate(new Date()));
 
@@ -84,7 +151,7 @@ export default function DietSuggestions({ user }) {
   const [userError, setUserError] = useState("");
 
   // suggestions
-  const [sugs, setSugs] = useState([]);
+  const [sugs, setSugs] = useState([]); // meal objects from TMDB + nutrition attached
   const [sugVisible, setSugVisible] = useState(4);
   const [sugLoading, setSugLoading] = useState(false);
 
@@ -96,9 +163,9 @@ export default function DietSuggestions({ user }) {
 
   const canLoadMore = sugs.length > sugVisible;
 
-  // Load user items for the selected day + tab
+  // Load user items for the selected day + tab and attach nutrition
   useEffect(() => {
-    if (!isAuthed) return; // guard inside effect
+    if (!isAuthed) return;
 
     let alive = true;
     (async () => {
@@ -110,12 +177,21 @@ export default function DietSuggestions({ user }) {
           date: day,
           meal: tab,
         });
-        if (!alive) return;
-        setUserItems(items || []);
+
+        // attach nutrition per item.name
+        const withNutri = await Promise.all(
+          (items || []).map(async (it) => {
+            const { values, note } = await fetchNutritionByTitle(it.name);
+            return { ...it, nutrition: values, nutriNote: note };
+          })
+        );
+
+        if (alive) setUserItems(withNutri);
       } catch (err) {
-        if (!alive) return;
-        console.error(err);
-        setUserError("Failed to load your items.");
+        if (alive) {
+          console.error(err);
+          setUserError("Failed to load your items.");
+        }
       } finally {
         if (alive) setUserLoading(false);
       }
@@ -125,15 +201,22 @@ export default function DietSuggestions({ user }) {
     };
   }, [isAuthed, user?.email, day, tab]);
 
-  // Load suggestions (vary by day + tab for freshness)
+  // Load suggestions (vary by day + tab), then attach nutrition to each suggestion
   useEffect(() => {
     let alive = true;
     (async () => {
       setSugLoading(true);
       try {
         const list = await tmdbRandom(6);
+        // attach nutrition in parallel by meal title
+        const withNutri = await Promise.all(
+          list.map(async (m) => {
+            const { values, note } = await fetchNutritionByTitle(m.strMeal);
+            return { ...m, nutrition: values, nutriNote: note };
+          })
+        );
         if (!alive) return;
-        setSugs(list);
+        setSugs(withNutri);
         setSugVisible(4);
       } catch (err) {
         console.error(err);
@@ -157,12 +240,19 @@ export default function DietSuggestions({ user }) {
       thumb: m.strMealThumb,
     };
     await apiAddItem(payload);
+    // reload items (nutrition will be reattached by the effect)
     const items = await apiGetUserItems({
       email: user.email,
       date: day,
       meal: tab,
     });
-    setUserItems(items || []);
+    const withNutri = await Promise.all(
+      (items || []).map(async (it) => {
+        const { values, note } = await fetchNutritionByTitle(it.name);
+        return { ...it, nutrition: values, nutriNote: note };
+      })
+    );
+    setUserItems(withNutri || []);
   }
 
   async function removeItem(id) {
@@ -175,7 +265,14 @@ export default function DietSuggestions({ user }) {
     setAddLoading(true);
     try {
       const hits = await tmdbSearch(addQuery);
-      setAddResults(hits || []);
+      // attach nutrition to search results as well (nice UX while choosing)
+      const withNutri = await Promise.all(
+        (hits || []).map(async (m) => {
+          const { values } = await fetchNutritionByTitle(m.strMeal);
+          return { ...m, nutrition: values };
+        })
+      );
+      setAddResults(withNutri || []);
     } finally {
       setAddLoading(false);
     }
@@ -197,13 +294,29 @@ export default function DietSuggestions({ user }) {
       date: day,
       meal: tab,
     });
-    setUserItems(items || []);
+    const withNutri = await Promise.all(
+      (items || []).map(async (it) => {
+        const { values, note } = await fetchNutritionByTitle(it.name);
+        return { ...it, nutrition: values, nutriNote: note };
+      })
+    );
+    setUserItems(withNutri || []);
     setOpenAdd(false);
     setAddQuery("");
     setAddResults([]);
   }
 
-  // Now it’s safe to conditionally return after hooks are declared
+  // totals (optional)
+  const totals = useMemo(() => {
+    const sum = (sel) =>
+      userItems.reduce((acc, it) => acc + (it.nutrition?.[sel] ?? 0), 0);
+    return {
+      calories: Math.round(sum("calories")),
+      carbs: Math.round(sum("carbs")),
+      protein: Math.round(sum("protein")),
+    };
+  }, [userItems]);
+
   if (!isAuthed) return <Navigate to="/login" replace />;
 
   return (
@@ -226,15 +339,17 @@ export default function DietSuggestions({ user }) {
           </div>
 
           <div className="diet-day">
-            <input
-              type="date"
-              value={day}
-              onChange={(e) => setDay(e.target.value)}
-            />
+            <input type="date" value={day} onChange={(e) => setDay(e.target.value)} />
           </div>
           <button className="diet-more__btn" onClick={() => setOpenAdd(true)}>
             + Add food
           </button>
+        </div>
+
+        {/* Totals row (optional) */}
+        <div style={{ margin: "8px 0 16px", fontSize: 14 }} className="muted">
+          Day totals for {tab}: {totals.calories} kcal • {totals.protein} g protein •{" "}
+          {totals.carbs} g carbs
         </div>
 
         {/* Your items */}
@@ -268,27 +383,18 @@ export default function DietSuggestions({ user }) {
                   </div>
                 </div>
 
-                {/* Placeholder macro bars */}
+                {/* Actual macro bars from backend nutrition */}
                 <div className="diet-macros">
-                  {[
-                    { key: "Protein", className: "macro__fill--protein" },
-                    { key: "Fats", className: "macro__fill--fat" },
-                    { key: "Carbs", className: "macro__fill--carb" },
-                  ].map((m) => (
-                    <div key={m.key}>
-                      <div className="macro__bar">
-                        <div
-                          className={`macro__fill ${m.className}`}
-                          style={{ width: "20%" }}
-                        />
-                      </div>
-                      <div className="macro__label">
-                        <span className="dot">•</span>
-                        <span>{m.key}</span>
-                      </div>
-                    </div>
-                  ))}
+                  <MacroBar label="Protein" value={it.nutrition?.protein ?? null} unit="g" />
+                  <MacroBar label="Carbs" value={it.nutrition?.carbs ?? null} unit="g" />
+                  <MacroBar label="Calories" value={it.nutrition?.calories ?? null} unit="kcal" max={800} />
                 </div>
+
+                {it.nutriNote && (
+                  <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>
+                    {it.nutriNote}
+                  </div>
+                )}
               </article>
             ))}
           </div>
@@ -318,25 +424,16 @@ export default function DietSuggestions({ user }) {
                 </div>
 
                 <div className="diet-macros">
-                  {[
-                    { key: "Protein", className: "macro__fill--protein" },
-                    { key: "Fats", className: "macro__fill--fat" },
-                    { key: "Carbs", className: "macro__fill--carb" },
-                  ].map((x) => (
-                    <div key={x.key}>
-                      <div className="macro__bar">
-                        <div
-                          className={`macro__fill ${x.className}`}
-                          style={{ width: "10%" }}
-                        />
-                      </div>
-                      <div className="macro__label">
-                        <span className="dot">•</span>
-                        <span>{x.key}</span>
-                      </div>
-                    </div>
-                  ))}
+                  <MacroBar label="Protein" value={m.nutrition?.protein ?? null} unit="g" />
+                  <MacroBar label="Carbs" value={m.nutrition?.carbs ?? null} unit="g" />
+                  <MacroBar label="Calories" value={m.nutrition?.calories ?? null} unit="kcal" max={800} />
                 </div>
+
+                {m.nutriNote && (
+                  <div className="muted" style={{ fontSize: 12, marginTop: 6 }}>
+                    {m.nutriNote}
+                  </div>
+                )}
               </article>
             ))}
         </div>
@@ -391,7 +488,11 @@ export default function DietSuggestions({ user }) {
                 onChange={(e) => setAddQuery(e.target.value)}
                 placeholder="Search foods (e.g., omelet, salad, rice)…"
               />
-              <button className="diet-more__btn" onClick={searchAdd} disabled={!addQuery.trim()}>
+              <button
+                className="diet-more__btn"
+                onClick={searchAdd}
+                disabled={!addQuery.trim()}
+              >
                 Search
               </button>
             </div>
@@ -410,6 +511,13 @@ export default function DietSuggestions({ user }) {
                         <span>•</span>
                         <span>{r.strArea || "—"}</span>
                       </div>
+                      {r.nutrition && (
+                        <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>
+                          {r.nutrition.calories ?? "—"} kcal •{" "}
+                          {r.nutrition.protein ?? "—"} g protein •{" "}
+                          {r.nutrition.carbs ?? "—"} g carbs
+                        </div>
+                      )}
                     </div>
                     <button className="diet-more__btn" onClick={() => addFromSearch(r)}>
                       Add

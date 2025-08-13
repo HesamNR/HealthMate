@@ -885,66 +885,111 @@ app.put("/api/medical-info", async (req, res) => {
 });
 
 // Spoonacular API key
-const SPOONACULAR_API_KEY = "f42f4ca755f24da787007574e27eed5a";
+const SPOONACULAR_API_KEY = "5e2832f05c754a8893e989cf8fb1dc58";
 
-// Search recipes by query
+/** ---- helpers ---- */
+function pickNutrientsFromNutrition(nutrition) {
+  // nutrition.nutrients: [{ name, amount, unit }, ...]
+  const arr = nutrition?.nutrients || [];
+  const byName = (n) => arr.find((x) => x.name?.toLowerCase() === n.toLowerCase())?.amount;
+  const calories = byName("Calories");
+  const carbs = byName("Carbohydrates");
+  const protein = byName("Protein");
+  const num = (v) => (Number.isFinite(v) ? v : null);
+  return {
+    calories: num(calories),
+    carbs: num(carbs),
+    protein: num(protein),
+  };
+}
+
+function hasAny(values) {
+  return [values.calories, values.carbs, values.protein].some((v) => v != null);
+}
+
+/** Search recipes by query, always try to return calories/carbs/protein */
 app.get("/api/recipes/search", async (req, res) => {
   const { query } = req.query;
   if (!query) return res.status(400).json({ message: "Query is required" });
 
   try {
-    const response = await axios.get(
+    // 1) Primary: complexSearch with nutrition included
+    const searchResp = await axios.get(
       "https://api.spoonacular.com/recipes/complexSearch",
       {
         params: {
           query,
-          addRecipeNutrition: true,
           number: 10,
+          addRecipeNutrition: true,          // <— include nutrition in results
           apiKey: SPOONACULAR_API_KEY,
         },
       }
     );
 
-    const recipes = (response.data?.results || []).map((r) => ({
-      id: r.id,
-      title: r.title,
-      image: r.image,
-      calories:
-        r.nutrition?.nutrients?.find((n) => n.name === "Calories")?.amount ??
-        null,
-      carbs:
-        r.nutrition?.nutrients?.find((n) => n.name === "Carbohydrates")
-          ?.amount ?? null,
-      protein:
-        r.nutrition?.nutrients?.find((n) => n.name === "Protein")?.amount ??
-        null,
-    }));
+    const base = searchResp.data?.results || [];
+
+    const recipes = await Promise.all(
+      base.map(async (r) => {
+        // Try to pick from the complexSearch nutrition first
+        let values = pickNutrientsFromNutrition(r?.nutrition);
+
+        // 2) Fallback per recipe to information?includeNutrition=true
+        if (!hasAny(values)) {
+          try {
+            const infoResp = await axios.get(
+              `https://api.spoonacular.com/recipes/${r.id}/information`,
+              { params: { includeNutrition: true, apiKey: SPOONACULAR_API_KEY } }
+            );
+            values = pickNutrientsFromNutrition(infoResp.data?.nutrition);
+          } catch {
+            // ignore, we'll return nulls if still missing
+          }
+        }
+
+        return {
+          id: r.id,
+          title: r.title,
+          image: r.image,
+          calories: values.calories,
+          carbs: values.carbs,
+          protein: values.protein,
+        };
+      })
+    );
 
     return res.json({ recipes });
   } catch (err) {
-    // When daily quota is exceeded Spoonacular returns 402
     if (err?.response?.status === 402) {
+      // Spoonacular quota exceeded
       return res.status(200).json({ quotaExceeded: true });
     }
     console.error("Recipe search error:", err?.response?.data || err.message);
     return res.status(500).json({ message: "Error fetching recipes" });
   }
 });
-// Get recipe details
+
+/** Get recipe details (with nutrition included) */
 app.get("/api/recipes/:id", async (req, res) => {
   try {
     const response = await axios.get(
       `https://api.spoonacular.com/recipes/${req.params.id}/information`,
       {
-        params: { apiKey: SPOONACULAR_API_KEY },
+        params: { includeNutrition: true, apiKey: SPOONACULAR_API_KEY },
       }
     );
-    res.json(response.data);
+
+    // Normalize a few top-level fields for convenience if you want
+    const norm = pickNutrientsFromNutrition(response.data?.nutrition);
+    res.json({ ...response.data, calories: norm.calories, carbs: norm.carbs, protein: norm.protein });
   } catch (error) {
+    if (error?.response?.status === 402) {
+      return res.status(200).json({ quotaExceeded: true });
+    }
     console.error("Recipe details error:", error.response?.data || error.message);
     res.status(500).json({ message: "Error fetching recipe details" });
   }
 });
+
 
 app.post("/api/custom-workout", async (req, res) => {
   console.log("Request body:", req.body);

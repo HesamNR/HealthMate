@@ -40,6 +40,41 @@ function extractIngredients(meal) {
 /* === Backend base (for modal nutrition fetch) === */
 const BACKEND = import.meta.env.VITE_API_BASE || "http://localhost:5000";
 
+/* ===== try to pull kcal/carbs/protein from multiple possible shapes ===== */
+function pickNutrients(obj) {
+  if (!obj) return { calories: null, carbs: null, protein: null };
+
+  // Shape A: top-level numbers {calories, carbs, protein}
+  const topLevel =
+    ["calories", "carbs", "protein"].every((k) => typeof obj[k] === "number")
+      ? {
+          calories: obj.calories,
+          carbs: obj.carbs,
+          protein: obj.protein,
+        }
+      : null;
+  if (topLevel) return topLevel;
+
+  // Shape B: Spoonacular-like: { nutrition: { nutrients: [{name, amount, unit}, ...] } }
+  const nutrients = obj?.nutrition?.nutrients;
+  if (Array.isArray(nutrients) && nutrients.length) {
+    const get = (name) =>
+      nutrients.find((n) => n.name?.toLowerCase() === name.toLowerCase())?.amount;
+    const calories = get("Calories");
+    const carbs = get("Carbohydrates");
+    const protein = get("Protein");
+    const any = [calories, carbs, protein].some((v) => Number.isFinite(v));
+    if (any) return { calories, carbs, protein };
+  }
+
+  return { calories: null, carbs: null, protein: null };
+}
+
+function roundVals({ calories, carbs, protein }) {
+  const r = (n) => (Number.isFinite(n) ? Math.round(n) : null);
+  return { calories: r(calories), carbs: r(carbs), protein: r(protein) };
+}
+
 /* ============================== UI =============================== */
 const TIMES = ["07:00", "10:00", "13:00", "18:00"];
 
@@ -91,28 +126,74 @@ export default function Meals() {
   }, []);
 
   async function onSearch(e) {
-  e.preventDefault();
-  const term = q.trim();
-  if (!term) return;
+    e.preventDefault();
+    const term = q.trim();
+    if (!term) return;
 
-  setLoading(true);
-  setResultsLoading(true);
-  setNoResults(false);
+    setLoading(true);
+    setResultsLoading(true);
+    setNoResults(false);
 
-  try {
-    const hits = await searchMeals(term);
+    try {
+      const hits = await searchMeals(term);
 
-    if (!hits) {
-      setNoResults(true);
-      setResults([]); 
-    } else {
-      setResults(hits);
+      if (!hits) {
+        setNoResults(true);
+        setResults([]);
+      } else {
+        setResults(hits);
+      }
+    } finally {
+      setLoading(false);
+      setResultsLoading(false);
     }
-  } finally {
-    setLoading(false);
-    setResultsLoading(false);
   }
-}
+
+  // ===== nutrition fetch: search -> pick nutrients; fallback to guess =====
+  async function fetchNutritionForTitle(title) {
+    // 1) primary: recipes search
+    try {
+      const res = await fetch(
+        `${BACKEND}/api/recipes/search?query=${encodeURIComponent(title)}`
+      );
+      const data = await res.json();
+
+      if (data?.quotaExceeded) {
+        return { note: "Daily nutrition limit reached. Try again later." };
+      }
+
+      const first = data?.recipes?.[0] ?? data?.results?.[0] ?? data?.recipe ?? null;
+      const picked = roundVals(pickNutrients(first));
+      const haveAny = [picked.calories, picked.carbs, picked.protein].some(
+        (v) => v != null
+      );
+      if (haveAny) return { values: picked, note: "Powered by Spoonacular" };
+    } catch {
+      /* ignore and try fallback */
+    }
+
+    // 2) fallback: nutrition guess by title
+    try {
+      const res = await fetch(
+        `${BACKEND}/api/nutrition/guess?title=${encodeURIComponent(title)}`
+      );
+      const data = await res.json();
+
+      if (data?.quotaExceeded) {
+        return { note: "Daily nutrition limit reached. Try again later." };
+      }
+
+      const picked = roundVals(pickNutrients(data));
+      const haveAny = [picked.calories, picked.carbs, picked.protein].some(
+        (v) => v != null
+      );
+      if (haveAny) return { values: picked, note: "Powered by Spoonacular" };
+    } catch {
+      /* ignore */
+    }
+
+    return { note: "Nutrition unavailable right now." };
+  }
 
   async function openDetails(id) {
     setOpenLoading(true);
@@ -124,29 +205,10 @@ export default function Meals() {
 
       if (meal) {
         setDetailNutriLoading(true);
-        try {
-          const res = await fetch(
-            `${BACKEND}/api/recipes/search?query=${encodeURIComponent(meal.strMeal)}`
-          );
-          const data = await res.json();
-          if (data?.quotaExceeded) {
-            setDetailNutriNote("Daily nutrition limit reached. Try again later.");
-          } else {
-            const first = data?.recipes?.[0];
-            if (first) {
-              const round = (n) => (Number.isFinite(n) ? Math.round(n) : null);
-              setDetailNutri({
-                calories: round(first.calories),
-                carbs: round(first.carbs),
-                protein: round(first.protein),
-              });
-            }
-          }
-        } catch {
-          setDetailNutriNote("Nutrition unavailable right now.");
-        } finally {
-          setDetailNutriLoading(false);
-        }
+        const { values, note } = await fetchNutritionForTitle(meal.strMeal);
+        if (values) setDetailNutri(values);
+        if (note) setDetailNutriNote(note);
+        setDetailNutriLoading(false);
       }
     } finally {
       setOpenLoading(false);
@@ -209,7 +271,7 @@ export default function Meals() {
                         <span>{m.strArea || "—"}</span>
                       </div>
                       <div className="r-actions">
-                        <button className="btn" onClick={() => openDetails(m.idMeal)}>View</button> 
+                        <button className="btn" onClick={() => openDetails(m.idMeal)}>View</button>
                       </div>
                     </div>
                   </article>
