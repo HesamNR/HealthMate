@@ -23,7 +23,6 @@ React + Vite, TailwindCSS, Node/Express, MongoDB (Atlas)s
 npm i
 npm run start:all
 ```
-=======
 # to run the code
 
 npm i
