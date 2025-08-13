@@ -1,3 +1,29 @@
+
+# HealthMate
+
+Single place to track daily health entries, tasks, prescriptions, and quick insights.
+
+## Quick Links
+
+- 📄 [Architecture](docs/ARCHITECTURE.md)
+- 🔌 [API Reference](docs/API.md)
+- 🛠️ [Installation (Local)](docs/INSTALL.md)
+- 🚀 [Deployment (Public Server)](docs/DEPLOY.md)
+- 🔁 [Deviations from PRJ566 Proposal](docs/DEVIATIONS.md)
+- 👤 [Test Accounts](docs/TEST_ACCOUNTS.md)
+- 🧪 Postman: `docs/postman/HealthMate.postman_collection.json`
+
+## Tech Stack
+
+React + Vite, TailwindCSS, Node/Express, MongoDB (Atlas)s
+
+## Run (TL;DR)
+
+```bash
+npm i
+npm run start:all
+```
+=======
 # to run the code
 
 npm i
@@ -16,3 +42,4 @@ Currently, two official plugins are available:
 ## Expanding the ESLint configuration
 
 If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+
