@@ -590,10 +590,10 @@ export default function WorkoutDetails({ user }) {
   const [showInstructionModal, setShowInstructionModal] = useState(false);
   const [weightLog, setWeightLog] = useState({});
   const [customPlanName, setCustomPlanName] = useState("");
-  const [showLogFieldFor, setShowLogFieldFor] = useState(null);
 
   const [showProgressModal, setShowProgressModal] = useState(false);
   const [progressData, setProgressData] = useState([]);
+  const [showSaveConfirmation, setShowSaveConfirmation] = useState(false);
 
   // Fetch user data (to get selected plan)
   useEffect(() => {
@@ -664,10 +664,6 @@ export default function WorkoutDetails({ user }) {
     setShowInstructionModal(true);
   };
 
-  const handleLogWeight = (exerciseName) => {
-    setShowLogFieldFor((prev) => (prev === exerciseName ? null : exerciseName));
-  };
-
   const handleSaveWeightLog = async (exerciseName, sets, reps) => {
     const weight = weightLog[exerciseName];
 
@@ -697,14 +693,18 @@ export default function WorkoutDetails({ user }) {
 
       if (res.ok) {
         console.log("Weight log saved!");
+        setShowSaveConfirmation(true);
+        setTimeout(() => setShowSaveConfirmation(false), 2000);
+        setWeightLog((prev) => ({
+          ...prev,
+          [exerciseName]: "",
+        }));
       } else {
         console.error("Failed to save log");
       }
     } catch (err) {
       console.error("Error logging weight:", err);
     }
-
-    setShowLogFieldFor(null);
   };
 
   const handleViewProgress = async (exerciseName) => {
@@ -720,7 +720,7 @@ export default function WorkoutDetails({ user }) {
         console.log("Progress data fetched:", data);
 
         setSelectedExercise({ exercise: exerciseName });
-        setProgressData(data); 
+        setProgressData(data);
         setShowProgressModal(true);
       } else {
         console.error("Failed to fetch progress data");
@@ -745,40 +745,19 @@ export default function WorkoutDetails({ user }) {
               key={idx}
               className="bg-white p-4 border rounded shadow-sm text-sm"
             >
-              <div className="flex justify-between items-center">
-                <div>
+              <div className="flex justify-between items-center flex-wrap gap-4">
+                {/* Exercise info */}
+                <div className="flex-1 min-w-[200px]">
                   <strong>{exercise.exercise}</strong>: {exercise.sets} sets ×{" "}
                   {exercise.reps} reps
                 </div>
-                <div className="flex gap-2 ml-4">
-                  <button
-                    onClick={() => handleShowInstructions(exercise)}
-                    className="px-2 py-1 text-xs bg-blue-100 hover:bg-blue-200 rounded"
-                  >
-                    ℹ️ Instructions
-                  </button>
-                  <button
-                    onClick={() => handleLogWeight(exercise.exercise)}
-                    className="px-2 py-1 text-xs bg-green-100 hover:bg-green-200 rounded"
-                  >
-                    🏋️ Log Weight
-                  </button>
-                  <button
-                    onClick={() => handleViewProgress(exercise.exercise)}
-                    className="ml-2 px-4 py-1 text-sm bg-blue-600 rounded hover:bg-blue-700"
-                    style={{ backgroundColor: "#AAD59E" }}
-                  >
-                    View Progress
-                  </button>
-                </div>
-              </div>
 
-              {/* Weight input field */}
-              {showLogFieldFor === exercise.exercise && (
-                <div className="mt-2">
+                {/* Right side controls */}
+                <div className="flex flex-wrap items-center gap-2 justify-end">
+                  {/* Weight input */}
                   <input
                     type="number"
-                    placeholder="Enter weight (lbs)"
+                    placeholder="Weight (lbs)"
                     value={weightLog[exercise.exercise] || ""}
                     onChange={(e) =>
                       setWeightLog({
@@ -786,23 +765,41 @@ export default function WorkoutDetails({ user }) {
                         [exercise.exercise]: e.target.value,
                       })
                     }
-                    className="border p-1 text-sm w-32 mr-2"
+                    className="border p-1 text-sm w-24"
                   />
+
+                  {/* Save Progress */}
                   <button
-                    onClick={() => {
+                    onClick={() =>
                       handleSaveWeightLog(
                         exercise.exercise,
                         exercise.sets,
                         exercise.reps
-                      );
-                    }}
+                      )
+                    }
                     className="px-2 py-1 bg-green-300 hover:bg-green-400 text-xs rounded"
                     style={{ backgroundColor: "#AAD59E" }}
                   >
-                    Save
+                    Save Progress
+                  </button>
+
+                  {/* Instructions */}
+                  <button
+                    onClick={() => handleShowInstructions(exercise)}
+                    className="px-2 py-1 text-xs bg-blue-100 hover:bg-blue-200 rounded"
+                  >
+                    ℹ️ Instructions
+                  </button>
+
+                  {/* View Progress */}
+                  <button
+                    onClick={() => handleViewProgress(exercise.exercise)}
+                    className="px-2 py-1 text-xs bg-blue-100 hover:bg-blue-200 rounded"
+                  >
+                    📈 View Progress
                   </button>
                 </div>
-              )}
+              </div>
             </li>
           ))}
         </ul>
@@ -870,6 +867,14 @@ export default function WorkoutDetails({ user }) {
               ×
             </button>
           </div>
+        </div>
+      )}
+      {showSaveConfirmation && (
+        <div
+          className="fixed bottom-8 left-1/2 transform -translate-x-1/2 bg-green-500 text-white px-6 py-3 rounded shadow-lg animate-fade-in-out"
+          style={{ backgroundColor: "#AAD59E" }}
+        >
+          Weight logged successfully!
         </div>
       )}
     </div>
