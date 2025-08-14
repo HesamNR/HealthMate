@@ -56,5 +56,5 @@ Open http://localhost:5173 in browser.
 
 ## Test Accounts
 
-See [Test Accounts](TEST_ACCOUNTS.md) for login credentials.
+See TEST_ACCOUNTS.md for login credentials.
 ```
