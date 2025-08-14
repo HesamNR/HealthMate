@@ -11,7 +11,6 @@ Single place to track daily health entries, tasks, prescriptions, and quick insi
 - 🚀 [Deployment (Public Server)](docs/DEPLOY.md)
 - 🔁 [Deviations from PRJ566 Proposal](docs/DEVIATIONS.md)
 - 👤 [Test Accounts](docs/TEST_ACCOUNTS.md)
-- 🧪 Postman: `docs/postman/HealthMate.postman_collection.json`
 
 ## Tech Stack
 
